@@ -238,6 +238,24 @@ STANDARD_REVIEW_TIME = 40  # minutes
 LIGHT_REVIEW_TIME = 15  # minutes
 ```
 
+Update per case precision for rules:
+
+```python
+'per_case_Precision_%'= ['update/add new precisions here delimited by comma for the rules as listed in Rule_Name']
+    
+```
+
+Update per case precision for rules:
+
+```python
+'Avg_Cases_Per_Month'= ['update/add new average case per month delimited by comma for the rules as listed in Rule_Name']
+    
+```
+Update per case precision for rules:
+
+```python
+Avg_Handling_Time_Minutes= ['update/add new average handing time values delimited by comma for the rules as listed in Rule_Name']
+
 ## Data Privacy and Security
 
 - **Credential Management**: Use environment variables or secure credential stores instead of hardcoding

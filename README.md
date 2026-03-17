@@ -255,6 +255,7 @@ Update per case precision for rules:
 
 ```python
 Avg_Handling_Time_Minutes= ['update/add new average handing time values delimited by comma for the rules as listed in Rule_Name']
+```
 
 ## Data Privacy and Security
 

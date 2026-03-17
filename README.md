@@ -1,6 +1,6 @@
 # Rule Loss Estimation Analysis
 
-A fraud risk analysis tool for optimizing merchant review workflows in payment processing environments. This notebook analyzes historical fraud data to prioritize merchant review rules based on loss, precision, and volume metrics.
+A Fraud Prevention rules review type analysis tool for optimizing CRM capacity for Payfac. This notebook analyzes historical fraud data to prioritize merchant review rules based on loss, precision, and volume metrics.
 
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Jupyter](https://img.shields.io/badge/jupyter-notebook-orange.svg)

@@ -7,19 +7,28 @@ A Fraud Prevention rules review type analysis tool for optimizing CRM capacity f
 
 ## Overview
 
-This analysis tool helps fraud prevention and CRM teams make data-driven decisions about resource allocation in Acquiring merchant review processes. By analyzing 6 months of historical fraud data, it identifies which merchant review rules generate the highest losses, evaluates their precision, and recommends optimal review types (Deep/Standard/Light) for each rule pattern.
+This analysis tool helps fraud prevention and CRM teams make data-driven decisions about resource allocation in Acquiring merchant review processes. By analyzing 6 months of historical fraud data, it identifies which merchant review rules generate the highest losses, evaluates their precision, and recommends optimal review types (Deep/Standard/Light) for each rule — all within a target weekly capacity constraint.
 
 **Target Audience**: Fraud prevention, Acquiring risk operations teams (CRM).
 
 ## Features
 
-- **Comprehensive 6-Month Fraud Loss Analysis** across 17+ merchant review rules
-- **Automated Loss Calculation** for both NOF (Notofication of Fraud) and chargeback losses
-- **Rule Precision Rate Analysis** to identify most effective review triggers
+- **Comprehensive 6-Month Fraud Loss Analysis** across 17 merchant review rules
+- **Automated Loss Calculation** for both NOF (Notification of Fraud) and chargeback losses
+- **Dual Precision Analysis** — both per-case precision and rule-level precision (L3M)
 - **Priority Scoring System** with weighted metrics (50% loss, 30% precision, 20% volume)
-- **Review Type Optimization** with recommendations for Deep/Standard/Light review assignments
-- **Formatted Outputs** with summary statistics and actionable insights
+- **Capacity-Constrained Review Type Optimization** — greedy algorithm assigns Deep/Standard/Light reviews while staying within a target weekly hours budget
+- **Current State vs. Proposed State Comparison** with hours reduction analysis
 - **Deduplication Logic** to ensure accurate per-merchant, per-rule analysis
+
+## Repository Structure
+
+```
+CRM_Capacity_planning/
+├── rule_loss_estimation_Analysis.ipynb   # Main analysis notebook
+├── rule_precision_L3M.sql               # SQL query for rule precision (last 3 months)
+└── README.md
+```
 
 ## Prerequisites
 
@@ -28,18 +37,18 @@ This analysis tool helps fraud prevention and CRM teams make data-driven decisio
 - **Python 3.12+**
 - **Jupyter Notebook** or JupyterLab
 - **Required Python Packages**:
-  - `snowflake-snowpark-python` - Snowflake data warehouse connectivity
-  - `pandas` - Data manipulation and analysis
-  - `numpy` - Numerical computing
+  - `snowflake-snowpark-python` — Snowflake data warehouse connectivity
+  - `pandas` — Data manipulation and analysis
+  - `numpy` — Numerical computing
 
 ### Access Requirements
 
 - **Snowflake Account Access** (Wise analytics warehouse)
 - **Okta SSO Authentication** configured
 - **Database Permissions** for:
-  - `ANALYTICS_DB.DDCASE.DD_CASE` - Case management data
-  - `ANALYTICS_DB.RPT_PRODUCT.PAY_WITH_CARD_MERCHANTS` - Merchant profiles
-  - `ANALYTICS_DB.RPT_PRODUCT.PAY_WITH_CARD_PAYMENTS` - Payment transactions
+  - `ANALYTICS_DB.DDCASE.DD_CASE` — Case management data
+  - `ANALYTICS_DB.RPT_PRODUCT.PAY_WITH_CARD_MERCHANTS` — Merchant profiles
+  - `ANALYTICS_DB.RPT_PRODUCT.PAY_WITH_CARD_PAYMENTS` — Payment transactions
 
 ## Installation
 
@@ -88,56 +97,80 @@ connection_parameters = {
    - The analysis will fetch data for the last 6 months from the current date
 
 4. **Review Key Outputs**
-   - Loss estimation
+   - Loss estimation by rule
    - Summary statistics
-   - Rule prioritization rankings pased on the final score
-   - Current state analysis (then make new recomendations)
+   - Current state analysis (weekly hours, capacity gap)
+   - Rule prioritization rankings (two scoring variants)
+   - Proposed review type assignments within capacity budget
 
 ## Outputs
 
-### Loss Analysis Table
+### 1. Loss Analysis Table
 
 For each merchant review rule, the analysis provides:
-- **Unique Merchants**: Count of distinct merchants flagged by the rule
-- **Total Payments**: Number of payment transactions processed
-- **NOF Amount**: Confirmed fraud losses (£)
-- **Chargeback Amount**: Chargeback (£)
-- **Total Fraud**: Combined NOF + chargeback losses (£)
-- **Precision %**: Per case preciison,  not based on per profile. If a rule hits 3 times on 1 profile and the 3rd time we offboard precision is 33%	
-- **Avg Fraud per Problematic Merchant**: Expected loss per risky merchant (not toal merchant flagged by the rule). This will give an idea of if we do not review a merchant by this rule and they turn out to be bad, how much we might lose on average
 
-### Summary Statistics
+| Metric | Description |
+|--------|-------------|
+| **Unique Merchants** | Count of distinct merchants flagged by the rule |
+| **Total Payments** | Number of successful payment transactions post-review |
+| **NOF Payments / Amount** | Notification of Fraud count and value (GBP) |
+| **Chargeback Payments / Amount** | Chargeback count and value (GBP) |
+| **Total Fraud** | Combined NOF + chargeback losses (GBP) |
+| **Problematic Merchants** | Merchants with at least one NOF or chargeback |
+| **Avg Fraud per Problematic Merchant** | Expected loss if a risky merchant goes unreviewed |
 
-Aggregate metrics including:
-- Total fraud across all rules
-- Monthly average fraud
-- Total unique merchants analyzed
-- Total payments processed
-- Average precision rate
+### 2. Current State Analysis
 
-### Priority Scoring
+Calculates the current operational workload:
+- Current monthly hours across all rules
+- Conversion to weekly hours using the formula: `(monthly_hours * 12/52) + 20` (20h added for NOF/CB handling)
+- Comparison against target weekly capacity (configurable, default 75h)
+- Required reduction percentage
 
-Rules ranked by composite priority score:
-- **50% Weight**: Total fraud loss
-- **30% Weight**: Precision rate
-- **20% Weight**: Transaction volume
+### 3. Priority Scoring (Two Variants)
 
-### Review Type Recommendations
+Rules are scored and ranked using two precision inputs:
 
-Suggested resource allocation for each rule:
+- **Per-case precision**: What percentage of individual case reviews result in an offboard/action
+- **Rule precision (L3M)**: What percentage of merchants flagged by the rule over the last 3 months are genuinely problematic
+
+Both variants use the same weighting:
+
+```
+priority_score = (0.5 * normalized_loss) + (0.3 * precision) + (0.2 * normalized_volume)
+```
+
+Where:
+- `normalized_loss` = monthly avg fraud per problematic merchant / max across all rules, scaled to 0–100
+- `precision` = either per-case or rule-level precision (0–100)
+- `normalized_volume` = (cases × AHT) / max effort across all rules, scaled to 0–100
+
+### 4. Review Type Recommendations
+
+A greedy capacity-constrained algorithm assigns review types:
+
 - **Deep Review** (~48 min): High-risk rules requiring comprehensive investigation
-- **Standard Review** (~35 min): Moderate-risk rules with balanced investigation needs
-- **Light Review** (~12 min): Lower-risk patterns requiring quick investigation
+- **Standard Review** (~35 min): Moderate-risk rules with balanced investigation
+- **Light Review** (15 min): Lower-risk patterns requiring quick checks
+
+The algorithm:
+1. Sorts rules by priority score (highest first)
+2. Starts all rules at Light review (cheapest)
+3. Iteratively upgrades the highest-priority rules to Standard, then Deep
+4. Stops upgrading when the weekly capacity target would be exceeded
+5. Respects constraints: a rule's proposed type cannot exceed its current type
+6. Supports fixed/locked rules (e.g., `LTVHigherThresholdBreached` locked to Deep)
 
 ## Key Metrics Explained
 
 | Metric | Definition | Business Impact |
 |--------|------------|----------------|
-| **NOF (Notification of Fraud)** | Confirmed fraud transactions  | PSP impacts|
+| **NOF (Notification of Fraud)** | Confirmed fraud transactions | PSP impacts |
 | **Chargeback Amount** | Customer dispute losses | Reputational and financial impact |
 | **Total Fraud** | Combined NOF + chargeback losses | Overall rule effectiveness measure |
-| **Precision %** | Reviews that identify actual fraud / Total reviews | Resource efficiency indicator |
-| **Priority Score** | Weighted composite metric | Resource allocation guide |
+| **Per-case Precision %** | Cases resulting in action / total cases reviewed | Resource efficiency indicator |
+| **Rule Precision % (L3M)** | Problematic merchants / total flagged merchants (last 3 months) | Rule quality indicator |
+| **Priority Score** | Weighted composite metric (loss, precision, volume) | Resource allocation guide |
 | **Avg Fraud per Problematic Merchant** | Expected loss if risky merchant isn't caught | Risk prioritization metric |
 
 ## Example Results
@@ -145,18 +178,27 @@ Suggested resource allocation for each rule:
 Based on actual analysis of 6 months of fraud data:
 
 ### Top Loss Rules
-1. **AttemptedAmountExceedsTransferAmount**: £45,944 total fraud
-2. **PaymentForRequestRecentlyPublished**: £44,306 total fraud
-3. **SuspiciousPaymentActivity**: £31,687 total fraud
-4. **RapidMerchantOnboarding**: £28,415 total fraud
+
+| Rule | Total Fraud (GBP) | Problematic Merchants | Avg Fraud/Merchant |
+|------|-------------------:|----------------------:|-------------------:|
+| AttemptedAmountExceedsTransferAmount | £45,978 | 2 | £22,989 |
+| PaymentForRequestRecentlyPublished | £44,662 | 4 | £11,165 |
+| AvgDailyPayFacTxnExceedsAvgDailyTransfer | £44,534 | 37 | £1,204 |
+| Transaction_amount | £36,973 | 5 | £7,395 |
+| Bin6AttemptedVolumeSpike | £19,382 | 11 | £1,762 |
 
 ### Summary Metrics
-- **Total Fraud Across All Rules**: £207,351
-- **Monthly Average Fraud**: £34,559
-- **Unique Merchants Analyzed**: 2,543
-- **Total Payments Processed**: 7,623
-- **Average Precision Rate**: 23.4%
 
+- **Total Fraud Across All Rules**: £222,818
+- **Monthly Average Fraud**: £37,136
+- **Unique Merchants Analyzed**: 2,619
+- **Total Payments Processed**: 7,601
+
+### Capacity Analysis
+
+- **Current Weekly Hours**: ~104h
+- **Target Weekly Hours**: 75h
+- **Reduction Needed**: ~29h/week (28.1%)
 
 ## Methodology
 
@@ -172,21 +214,19 @@ Based on actual analysis of 6 months of fraud data:
   - Merchant profiles from `RPT_PRODUCT.PAY_WITH_CARD_MERCHANTS`
   - Transaction data from `RPT_PRODUCT.PAY_WITH_CARD_PAYMENTS`
 
-### Review Type Classification
+### Capacity Formula
 
-The analysis categorizes rules into three review tiers based on priority scores:
+Weekly hours are calculated using:
 
-- **Deep Review (~48 minutes)**
-  - Comprehensive investigation for high-risk rules
-  - Includes detailed merchant background checks, transaction pattern analysis, and external data verification
+```
+weekly_hours = ((total_monthly_minutes / 60) + 24.8) * (12/52) + 20
+```
 
-- **Standard Review (~35 minutes)**
-  - Balanced investigation for moderate risk
-  - Standard review procedures with focused checks on key risk indicators
-
-- **Light Review (~12 minutes)**
-  - Quick review for lower-risk patterns
-  - Automated checks with manual oversight on specific triggers
+Where:
+- `total_monthly_minutes` = sum of (cases per month × handling time per case) across all rules
+- `24.8` = additional monthly overhead hours
+- `12/52` = conversion from monthly to weekly
+- `20` = fixed weekly hours for NOF and chargeback handling
 
 ### Priority Score Calculation
 
@@ -194,67 +234,55 @@ The analysis categorizes rules into three review tiers based on priority scores:
 priority_score = (0.5 * normalized_loss) + (0.3 * precision_rate) + (0.2 * normalized_volume)
 ```
 
-Where:
-- `normalized_loss` = (rule_loss / max_rule_loss)
-- `precision_rate` = (fraud_cases / total_cases)
-- `normalized_volume` = (rule_volume / max_rule_volume)
-
 ## Customization
+
+### Adjusting the Capacity Target
+
+```python
+target_weekly_cap = 75  # Change to your team's available hours per week
+```
+
+### Locking Specific Rules to a Review Type
+
+```python
+locked_rules = {
+    'LTVHigherThresholdBreached': 'Deep',
+    # Add more rules as needed
+}
+```
 
 ### Adjusting Time Windows
 
 Modify the date range in the SQL query:
 
-```python
-# Change from 6 months to custom period
-date_threshold = (datetime.now() - timedelta(days=180))  # Change 180 to desired days
+```sql
+-- Change from 6 months to custom period
+WHERE TIME_CREATED >= DATEADD(month, -6, CURRENT_DATE())
 ```
 
 ### Adding New Rule Patterns
 
-Add rule names to the analysis by updating the rule extraction logic:
+Add rule names by updating the `CASE WHEN` statements in the SQL query:
 
-```python
-# Add new rule patterns to the CASE WHEN statements in the SQL query
-WHEN rule_content LIKE '%YourNewRule%' THEN 'YourNewRule'
+```sql
+WHEN UPPER(metadata) LIKE UPPER('%YourNewRuleName%') THEN 'YourNewRuleName'
 ```
 
 ### Modifying Priority Score Weights
 
-Adjust weights based on organization's priorities:
-
 ```python
 priority_score = (0.6 * normalized_loss) + (0.25 * precision_rate) + (0.15 * normalized_volume)
-# Increase loss weight, decrease volume weight
 ```
 
-### Changing Review Time Constants
+### Updating Operational Inputs
 
-Update review time allocations:
-
-```python
-DEEP_REVIEW_TIME = 60  # minutes
-STANDARD_REVIEW_TIME = 40  # minutes
-LIGHT_REVIEW_TIME = 15  # minutes
-```
-
-Update per case precision for rules:
+These lists must align with the `Rule_Name` order in `current_state`:
 
 ```python
-'per_case_Precision_%'= ['update/add new precisions here delimited by comma for the rules as listed in Rule_Name']
-    
-```
-
-Update per case precision for rules:
-
-```python
-'Avg_Cases_Per_Month'= ['update/add new average case per month delimited by comma for the rules as listed in Rule_Name']
-    
-```
-Update per case precision for rules:
-
-```python
-'Avg_Handling_Time_Minutes'= ['update/add new average handing time values delimited by comma for the rules as listed in Rule_Name']
+Avg_Cases_Per_Month = [...]          # Monthly case volumes per rule
+Avg_Handling_Time_Minutes = [...]    # Average handling time per case per rule
+'rule_precision_L3M': [...]          # Rule-level precision from dashboard
+'per_case_Precision_%': [...]        # Per-case precision
 ```
 
 ## Data Privacy and Security
@@ -277,8 +305,6 @@ Contributions are welcome! If you'd like to improve the analysis or add new feat
 
 ## Use Cases
 
-This analysis supports several operational workflows:
-
 - **Resource Planning**: Determine optimal staffing levels for different review types
 - **Rule Optimization**: Identify underperforming rules for refinement or deprecation
 - **Training Priorities**: Focus analyst training on high-impact rule patterns
@@ -288,8 +314,8 @@ This analysis supports several operational workflows:
 ## Limitations
 
 - Analysis requires 6 months of historical data for statistical significance
-- Precision rates need to be manually added when changes occur
-
+- Precision rates and average case volumes/handling times need to be manually updated when changes occur
+- The optimization cannot propose a review type higher than the current type (only downgrades or same)
 
 ## Author
 
@@ -298,7 +324,6 @@ This analysis supports several operational workflows:
 Receive Risk Card Fraud Prevention Analyst (PAYFAC)
 
 March 2026
-
 
 ---
 
